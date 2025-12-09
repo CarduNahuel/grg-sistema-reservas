@@ -302,3 +302,4 @@ Para reportar bugs o sugerir mejoras, contacta al equipo de desarrollo.
 ---
 
 **¡Disfruta gestionando reservas con GRG!** 🍽️✨
+# grg-sistema-reservas
