@@ -1,0 +1,669 @@
+<?php 
+$title = 'Plano de Mesas - ' . htmlspecialchars($restaurant['name']); 
+ob_start(); 
+$areas = $areas ?? ['General'];
+$selectedArea = $selectedArea ?? 'General';
+
+$styles = <<<CSS
+<style>
+.layout-wrapper { display: flex; gap: 1.25rem; align-items: flex-start; }
+.layout-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 58px);
+    grid-template-rows: repeat(10, 58px);
+    gap: 8px;
+    padding: 14px;
+    background: #f7f9fc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    position: relative;
+    min-height: 660px;
+    box-shadow: inset 0 1px 0 #fff, 0 10px 30px rgba(15, 23, 42, 0.08);
+    width: min(820px, 100%);
+}
+.grid-cell {
+    border: 1px dashed rgba(100,116,139,0.15);
+    border-radius: 8px;
+    position: relative;
+    background: linear-gradient(135deg, rgba(15,23,42,0.03) 0%, rgba(15,23,42,0) 70%);
+    transition: border-color 0.12s ease, background 0.12s ease;
+}
+.grid-cell.bg-light { background: rgba(99,102,241,0.08) !important; border-color: #6366f1; }
+.table-node {
+    position: absolute;
+    inset: 4px;
+    padding: 10px;
+    border-radius: 12px;
+    color: #0f172a;
+    box-shadow: 0 6px 14px rgba(15,23,42,0.16);
+    cursor: grab;
+    user-select: none;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.12s ease;
+    min-height: 48px;
+    border: 1px solid transparent;
+}
+.table-node:active { cursor: grabbing; transform: scale(0.98); }
+.table-node.status-available { background: #d1fae5; border: 1px solid #34d399; }
+.table-node.status-reserved { background: #fef3c7; border: 1px solid #f59e0b; }
+.table-node.status-busy { background: #fee2e2; border: 1px solid #ef4444; }
+.table-node .title { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.table-node .meta { font-size: 12px; color: #334155; display: flex; justify-content: space-between; }
+.unplaced-list .table-chip {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    cursor: grab;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.unplaced-list .table-chip:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(99,102,241,0.15); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+.legend .dot { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+.control-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.area-pill { margin-right: 6px; }
+</style>
+CSS;
+?>
+
+<?= $styles ?>
+
+<div class="mb-4 d-flex justify-content-between align-items-center">
+    <div>
+        <a href="<?= url('/admin/restaurants') ?>" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Volver a Restaurantes
+        </a>
+    </div>
+    <div class="d-flex gap-2">
+        <form class="d-flex gap-2" method="GET" action="">
+            <select name="area" class="form-select form-select-sm" onchange="this.form.submit()">
+                <?php foreach ($areas as $area): ?>
+                    <option value="<?= htmlspecialchars($area) ?>" <?= $area === $selectedArea ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($area) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <noscript><button class="btn btn-primary btn-sm">Cambiar</button></noscript>
+        </form>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addTableModal">
+            <i class="bi bi-plus-circle"></i> Agregar Mesa
+        </button>
+        <form method="POST" action="<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/reset') ?>" onsubmit="return confirm('Esto borrará todas las mesas y creará un layout demo. ¿Continuar?');">
+            <?= \App\Services\CSRFProtection::getTokenInput() ?>
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset demo
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-0"><i class="bi bi-grid-3x3-gap"></i> Plano de Mesas - <?= htmlspecialchars($selectedArea) ?></h5>
+            <small class="text-white-50"><i class="bi bi-geo-alt"></i> <?= htmlspecialchars($restaurant['address']) ?>, <?= htmlspecialchars($restaurant['city']) ?></small>
+        </div>
+        <div class="legend">
+            <span><span class="dot" style="background:#d1fae5; border:1px solid #34d399"></span> Disponible</span>
+            <span><span class="dot" style="background:#fef3c7; border:1px solid #f59e0b"></span> Reservada</span>
+            <span><span class="dot" style="background:#fee2e2; border:1px solid #ef4444"></span> No disponible</span>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="layout-wrapper">
+            <div class="flex-grow-1">
+                <form id="layoutForm" method="POST" action="<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/layout') ?>">
+                    <?= \App\Services\CSRFProtection::getTokenInput() ?>
+                    <input type="hidden" name="area" value="<?= htmlspecialchars($selectedArea) ?>">
+                    <input type="hidden" name="layout" id="layoutInput" value="[]">
+                    <div class="layout-grid" id="layoutGrid" data-cols="12" data-rows="10">
+                        <?php for ($r = 1; $r <= 10; $r++): ?>
+                            <?php for ($c = 1; $c <= 12; $c++): ?>
+                                <div class="grid-cell" data-row="<?= $r ?>" data-col="<?= $c ?>"></div>
+                            <?php endfor; ?>
+                        <?php endfor; ?>
+
+                        <?php foreach ($tables as $table): ?>
+                            <?php 
+                                $statusClass = !$table['is_available'] ? 'status-busy' : ($table['has_active_reservation'] ? 'status-reserved' : 'status-available');
+                                $col = $table['position_x'];
+                                $row = $table['position_y'];
+                            ?>
+                            <?php if ($col && $row): ?>
+                                <div class="table-node <?= $statusClass ?>" draggable="true" 
+                                     data-id="<?= $table['id'] ?>" data-col="<?= $col ?>" data-row="<?= $row ?>" 
+                                     style="grid-column: <?= (int)$col ?>; grid-row: <?= (int)$row ?>;">
+                                    <div class="title"><i class="bi bi-grid"></i> Mesa <?= htmlspecialchars($table['table_number']) ?></div>
+                                    <div class="meta">
+                                        <span><i class="bi bi-people"></i> Capacidad <?= (int)$table['capacity'] ?></span>
+                                        <?php if ($table['next_guest_count']): ?>
+                                            <span class="<?= $table['next_guest_count'] > $table['capacity'] ? 'text-danger' : 'text-muted' ?>">
+                                                Solicitado <?= (int)$table['next_guest_count'] ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="mt-3 d-flex justify-content-between align-items-center">
+                        <div class="text-muted small">Arrastra las mesas a la grilla. Los bordes son las paredes.</div>
+                        <button type="button" class="btn btn-primary" id="saveLayoutBtn">
+                            <i class="bi bi-save"></i> Guardar layout
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div style="width: 320px;">
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-diagram-3"></i> Mesas sin posición</span>
+                        <span class="badge bg-secondary">Arrastra a la grilla</span>
+                    </div>
+                    <div class="card-body unplaced-list" id="unplacedList">
+                        <?php foreach ($tables as $table): ?>
+                            <?php if (empty($table['position_x']) || empty($table['position_y'])): ?>
+                                <div class="table-chip" draggable="true" data-id="<?= $table['id'] ?>">
+                                    <div>
+                                        <strong>Mesa <?= htmlspecialchars($table['table_number']) ?></strong>
+                                        <div class="text-muted small">Capacidad <?= (int)$table['capacity'] ?></div>
+                                    </div>
+                                    <i class="bi bi-arrows-move"></i>
+                                </div>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                        <?php if (empty(array_filter($tables, fn($t) => empty($t['position_x']) || empty($t['position_y'])))): ?>
+                            <div class="text-muted small">Todas las mesas tienen posición.</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-info-circle"></i> Consejos</div>
+                    <div class="card-body small text-muted">
+                        <ul class="mb-0">
+                            <li>Rojo: mesa no disponible</li>
+                            <li>Amarillo: tiene una reserva próxima</li>
+                            <li>Verde: disponible</li>
+                            <li>Arrastra una mesa sobre un cuadro para fijar su posición</li>
+                            <li>Usa el selector de área para diferentes planos (Patio, Terraza, etc.)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="mt-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-list-check"></i> Mesas en <?= htmlspecialchars($selectedArea) ?></span>
+                    <span class="text-muted small">Edita o elimina desde aquí</span>
+                </div>
+                <div class="card-body p-0">
+                    <?php if (empty($tables)): ?>
+                        <div class="p-3 text-muted">No hay mesas en este plano todavía.</div>
+                    <?php else: ?>
+                        <div class="table-responsive mb-0">
+                            <table class="table mb-0 align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Mesa</th>
+                                        <th>Capacidad</th>
+                                        <th>Área</th>
+                                        <th>Piso</th>
+                                        <th>Estado</th>
+                                        <th width="110">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tables as $table): ?>
+                                        <tr>
+                                            <td class="fw-semibold"><?= htmlspecialchars($table['table_number']) ?></td>
+                                            <td><i class="bi bi-people"></i> <?= (int)$table['capacity'] ?></td>
+                                            <td><?= htmlspecialchars($table['area'] ?: 'General') ?></td>
+                                            <td><?= (int)$table['floor'] ?></td>
+                                            <td>
+                                                <?php if (!$table['is_available']): ?>
+                                                    <span class="badge bg-danger">No disponible</span>
+                                                <?php elseif ($table['has_active_reservation']): ?>
+                                                    <span class="badge bg-warning text-dark">Reservada</span>
+                                                <?php else: ?>
+                                                    <span class="badge bg-success">Disponible</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <button type="button" 
+                                                        class="btn btn-outline-primary btn-sm edit-table-btn"
+                                                        data-table='<?= json_encode($table) ?>'
+                                                        data-bs-toggle="modal" 
+                                                        data-bs-target="#editTableModal">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button type="button" 
+                                                        class="btn btn-outline-danger btn-sm delete-table-btn"
+                                                        data-table-id="<?= $table['id'] ?>"
+                                                        data-table-number="<?= htmlspecialchars($table['table_number']) ?>">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para agregar mesa -->
+<div class="modal fade" id="addTableModal" tabindex="-1" aria-labelledby="addTableModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/add') ?>">
+                <?= \App\Services\CSRFProtection::getTokenInput() ?>
+                
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addTableModalLabel">Agregar Nueva Mesa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="table_number" class="form-label">Número de Mesa *</label>
+                        <input type="text" class="form-control" id="table_number" name="table_number" required 
+                               placeholder="Ej: 1, A1, Mesa 5">
+                    </div>
+                    <div class="mb-3">
+                        <label for="capacity" class="form-label">Capacidad (personas) *</label>
+                        <input type="number" class="form-control" id="capacity" name="capacity" required min="1" max="20" value="4">
+                    </div>
+                    <div class="mb-3">
+                        <label for="area" class="form-label">Área / Plano</label>
+                        <input type="text" class="form-control" id="area" name="area" placeholder="Patio, Terraza, Interior" value="<?= htmlspecialchars($selectedArea) ?>">
+                        <small class="text-muted">Usa el mismo nombre para agrupar mesas en una grilla.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="floor" class="form-label">Piso</label>
+                        <input type="number" class="form-control" id="floor" name="floor" value="1" min="0" max="10">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="is_available" name="is_available" value="1" checked>
+                        <label class="form-check-label" for="is_available">
+                            Disponible para reservas
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="can_be_joined" name="can_be_joined" value="1">
+                        <label class="form-check-label" for="can_be_joined">
+                            Se puede unir con otras mesas
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Agregar Mesa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para editar mesa -->
+<div class="modal fade" id="editTableModal" tabindex="-1" aria-labelledby="editTableModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/update') ?>" id="editTableForm">
+                <?= \App\Services\CSRFProtection::getTokenInput() ?>
+                <input type="hidden" name="table_id" id="edit_table_id">
+                
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editTableModalLabel">Editar Mesa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_table_number" class="form-label">Número de Mesa *</label>
+                        <input type="text" class="form-control" id="edit_table_number" name="table_number" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_capacity" class="form-label">Capacidad (personas) *</label>
+                        <input type="number" class="form-control" id="edit_capacity" name="capacity" required min="1" max="20">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_area" class="form-label">Área / Plano</label>
+                        <input type="text" class="form-control" id="edit_area" name="area" placeholder="Patio, Terraza, Interior">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_floor" class="form-label">Piso</label>
+                        <input type="number" class="form-control" id="edit_floor" name="floor" min="0" max="10">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="edit_is_available" name="is_available" value="1">
+                        <label class="form-check-label" for="edit_is_available">
+                            Disponible para reservas
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="edit_can_be_joined" name="can_be_joined" value="1">
+                        <label class="form-check-label" for="edit_can_be_joined">
+                            Se puede unir con otras mesas
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Posicionar mesas iniciales dentro de las celdas
+function mountTablesIntoGrid() {
+    document.querySelectorAll('.table-node').forEach(node => {
+        const col = node.dataset.col;
+        const row = node.dataset.row;
+        const cell = document.querySelector(`.grid-cell[data-col="${col}"][data-row="${row}"]`);
+        if (cell) {
+            node.style.gridColumn = col;
+            node.style.gridRow = row;
+            cell.appendChild(node);
+        }
+    });
+}
+
+function attachDragDrop() {
+    let dragged = null;
+
+    const draggables = document.querySelectorAll('.table-node, .table-chip');
+    draggables.forEach(el => {
+        el.addEventListener('dragstart', e => {
+            dragged = el;
+            e.dataTransfer.effectAllowed = 'move';
+        });
+    });
+
+    document.querySelectorAll('.grid-cell').forEach(cell => {
+        cell.addEventListener('dragover', e => {
+            e.preventDefault();
+            cell.classList.add('bg-light');
+        });
+        cell.addEventListener('dragleave', () => cell.classList.remove('bg-light'));
+        cell.addEventListener('drop', e => {
+            e.preventDefault();
+            cell.classList.remove('bg-light');
+            if (!dragged) return;
+
+            const tableId = dragged.dataset.id;
+            if (!tableId) return;
+
+            const col = cell.getAttribute('data-col');
+            const row = cell.getAttribute('data-row');
+
+            // Convert chip to node if viene de la lista
+            if (dragged.classList.contains('table-chip')) {
+                const newNode = document.createElement('div');
+                newNode.className = 'table-node status-available';
+                newNode.draggable = true;
+                newNode.dataset.id = tableId;
+                newNode.dataset.col = col;
+                newNode.dataset.row = row;
+                newNode.innerHTML = dragged.innerHTML;
+                cell.appendChild(newNode);
+                dragged.remove();
+                attachDragDrop();
+            } else {
+                dragged.dataset.col = col;
+                dragged.dataset.row = row;
+                dragged.style.gridColumn = col;
+                dragged.style.gridRow = row;
+                cell.appendChild(dragged);
+            }
+        });
+    });
+}
+
+function serializeLayout() {
+    const nodes = document.querySelectorAll('.table-node');
+    const payload = [];
+    nodes.forEach(node => {
+        const id = node.dataset.id;
+        const col = node.dataset.col;
+        const row = node.dataset.row;
+        if (id && col && row) {
+            payload.push({ id: parseInt(id, 10), col: parseInt(col, 10), row: parseInt(row, 10) });
+        }
+    });
+    document.getElementById('layoutInput').value = JSON.stringify(payload);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    mountTablesIntoGrid();
+    attachDragDrop();
+
+    document.getElementById('saveLayoutBtn').addEventListener('click', () => {
+        serializeLayout();
+        document.getElementById('layoutForm').submit();
+    });
+
+    // Modal editar: precargar datos
+    document.querySelectorAll('.edit-table-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const table = JSON.parse(this.getAttribute('data-table'));
+            document.getElementById('edit_table_id').value = table.id;
+            document.getElementById('edit_table_number').value = table.table_number;
+            document.getElementById('edit_capacity').value = table.capacity;
+            document.getElementById('edit_area').value = table.area || '';
+            document.getElementById('edit_floor').value = table.floor;
+            document.getElementById('edit_is_available').checked = table.is_available == 1;
+            document.getElementById('edit_can_be_joined').checked = table.can_be_joined == 1;
+        });
+    });
+
+    // Eliminar mesa
+    document.querySelectorAll('.delete-table-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const tableId = this.getAttribute('data-table-id');
+            const tableNumber = this.getAttribute('data-table-number');
+            
+            if (confirm(`¿Estás seguro de que deseas eliminar la mesa "${tableNumber}"?\n\nEsta acción no se puede deshacer.`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/delete') ?>';
+                
+                const csrfInput = document.createElement('input');
+                csrfInput.type = 'hidden';
+                csrfInput.name = 'csrf_token';
+                csrfInput.value = '<?= \App\Services\CSRFProtection::getToken() ?>';
+                
+                const tableIdInput = document.createElement('input');
+                tableIdInput.type = 'hidden';
+                tableIdInput.name = 'table_id';
+                tableIdInput.value = tableId;
+                
+                form.appendChild(csrfInput);
+                form.appendChild(tableIdInput);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        });
+    });
+});
+</script>
+
+<!-- Modal para agregar mesa -->
+<div class="modal fade" id="addTableModal" tabindex="-1" aria-labelledby="addTableModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/add') ?>">
+                <?= \App\Services\CSRFProtection::getTokenInput() ?>
+                
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addTableModalLabel">Agregar Nueva Mesa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="table_number" class="form-label">Número de Mesa *</label>
+                        <input type="text" class="form-control" id="table_number" name="table_number" required 
+                               placeholder="Ej: 1, A1, Mesa 5">
+                    </div>
+                    <div class="mb-3">
+                        <label for="capacity" class="form-label">Capacidad (personas) *</label>
+                        <input type="number" class="form-control" id="capacity" name="capacity" required min="1" max="20" value="4">
+                    </div>
+                    <div class="mb-3">
+                        <label for="area" class="form-label">Área</label>
+                        <select class="form-select" id="area" name="area">
+                            <option value="">Seleccionar área</option>
+                            <option value="Interior">Interior</option>
+                            <option value="Terraza">Terraza</option>
+                            <option value="VIP">VIP</option>
+                            <option value="Barra">Barra</option>
+                            <option value="Jardín">Jardín</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="floor" class="form-label">Piso</label>
+                        <input type="number" class="form-control" id="floor" name="floor" value="1" min="0" max="10">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="is_available" name="is_available" value="1" checked>
+                        <label class="form-check-label" for="is_available">
+                            Disponible para reservas
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="can_be_joined" name="can_be_joined" value="1">
+                        <label class="form-check-label" for="can_be_joined">
+                            Se puede unir con otras mesas
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Agregar Mesa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para editar mesa -->
+<div class="modal fade" id="editTableModal" tabindex="-1" aria-labelledby="editTableModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/update') ?>" id="editTableForm">
+                <?= \App\Services\CSRFProtection::getTokenInput() ?>
+                <input type="hidden" name="table_id" id="edit_table_id">
+                
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editTableModalLabel">Editar Mesa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_table_number" class="form-label">Número de Mesa *</label>
+                        <input type="text" class="form-control" id="edit_table_number" name="table_number" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_capacity" class="form-label">Capacidad (personas) *</label>
+                        <input type="number" class="form-control" id="edit_capacity" name="capacity" required min="1" max="20">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_area" class="form-label">Área</label>
+                        <select class="form-select" id="edit_area" name="area">
+                            <option value="">Seleccionar área</option>
+                            <option value="Interior">Interior</option>
+                            <option value="Terraza">Terraza</option>
+                            <option value="VIP">VIP</option>
+                            <option value="Barra">Barra</option>
+                            <option value="Jardín">Jardín</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_floor" class="form-label">Piso</label>
+                        <input type="number" class="form-control" id="edit_floor" name="floor" min="0" max="10">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="edit_is_available" name="is_available" value="1">
+                        <label class="form-check-label" for="edit_is_available">
+                            Disponible para reservas
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="edit_can_be_joined" name="can_be_joined" value="1">
+                        <label class="form-check-label" for="edit_can_be_joined">
+                            Se puede unir con otras mesas
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Cargar datos al modal de edición
+document.querySelectorAll('.edit-table-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const table = JSON.parse(this.getAttribute('data-table'));
+        document.getElementById('edit_table_id').value = table.id;
+        document.getElementById('edit_table_number').value = table.table_number;
+        document.getElementById('edit_capacity').value = table.capacity;
+        document.getElementById('edit_area').value = table.area || '';
+        document.getElementById('edit_floor').value = table.floor;
+        document.getElementById('edit_is_available').checked = table.is_available == 1;
+        document.getElementById('edit_can_be_joined').checked = table.can_be_joined == 1;
+    });
+});
+
+// Confirmar eliminación
+document.querySelectorAll('.delete-table-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const tableId = this.getAttribute('data-table-id');
+        const tableNumber = this.getAttribute('data-table-number');
+        
+        if (confirm(`¿Estás seguro de que deseas eliminar la mesa "${tableNumber}"?\n\nEsta acción no se puede deshacer.`)) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '<?= url('/admin/restaurants/' . $restaurant['id'] . '/tables/delete') ?>';
+            
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = '<?= \App\Services\CSRFProtection::getToken() ?>';
+            
+            const tableIdInput = document.createElement('input');
+            tableIdInput.type = 'hidden';
+            tableIdInput.name = 'table_id';
+            tableIdInput.value = tableId;
+            
+            form.appendChild(csrfInput);
+            form.appendChild(tableIdInput);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    });
+});
+</script>
+
+<?php
+$content = ob_get_clean();
+require __DIR__ . '/../layouts/app.php';
+?>

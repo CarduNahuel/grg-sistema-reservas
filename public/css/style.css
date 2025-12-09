@@ -1,0 +1,127 @@
+:root {
+    --primary-color: #0d6efd;
+    --secondary-color: #6c757d;
+    --success-color: #198754;
+    --danger-color: #dc3545;
+    --warning-color: #ffc107;
+    --info-color: #0dcaf0;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+.card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+.navbar-brand {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+.sticky-top {
+    position: sticky;
+}
+
+.badge {
+    font-size: 0.7rem;
+    padding: 0.25em 0.5em;
+}
+
+/* Reservation status colors */
+.badge-pending {
+    background-color: var(--warning-color);
+    color: #000;
+}
+
+.badge-confirmed {
+    background-color: var(--success-color);
+}
+
+.badge-rejected {
+    background-color: var(--danger-color);
+}
+
+.badge-cancelled {
+    background-color: var(--secondary-color);
+}
+
+.badge-completed {
+    background-color: var(--info-color);
+}
+
+.badge-no_show {
+    background-color: #6c757d;
+}
+
+/* Table availability */
+.table-available {
+    background-color: #d1e7dd;
+    border-color: #badbcc;
+}
+
+.table-occupied {
+    background-color: #f8d7da;
+    border-color: #f5c2c7;
+}
+
+/* Dashboard cards */
+.stat-card {
+    border-left: 4px solid var(--primary-color);
+}
+
+.stat-card.success {
+    border-left-color: var(--success-color);
+}
+
+.stat-card.warning {
+    border-left-color: var(--warning-color);
+}
+
+.stat-card.danger {
+    border-left-color: var(--danger-color);
+}
+
+/* Loading spinner */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.2em;
+}
+
+/* Notification badge animation */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.navbar .badge {
+    animation: pulse 2s infinite;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+}
